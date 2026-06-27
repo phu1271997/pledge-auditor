@@ -4,7 +4,7 @@ from genlayer import *
 import json
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # PLEDGE AUDITOR
 # A trustless reputation layer for corporate / public PLEDGES.
 #
@@ -13,23 +13,23 @@ import json
 #   ("carbon neutral by 2030", "refunds within 30 days", "no child labour").
 #   ANYONE can trigger an on-chain audit. The contract reads live public web
 #   evidence (gl.nondet.web.render) and an AI jury (gl.nondet.exec_prompt)
-#   judges — subjectively — whether the organization is actually keeping its
+#   judges - subjectively - whether the organization is actually keeping its
 #   word. A breach slashes the stake into a whistleblower bounty pool.
 #
 #   Solidity cannot read unstructured web evidence nor render a subjective
 #   "are they keeping their promise?" verdict. This is the heart, not garnish.
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 
 # Verdict constants stored as small ints (no enums in public schema).
 VERDICT_PENDING = u8(0)
 VERDICT_KEPT = u8(1)      # organization is honouring the pledge
 VERDICT_BREACHED = u8(2)  # organization is violating the pledge
-VERDICT_UNCLEAR = u8(3)   # evidence insufficient — no slash, no payout
+VERDICT_UNCLEAR = u8(3)   # evidence insufficient - no slash, no payout
 
 
 class Contract(gl.Contract):
-    # ── storage (TreeMap/DynArray auto-init to empty — never reassign in init) ──
+    # -- storage (TreeMap/DynArray auto-init to empty - never reassign in init) --
     # Note: custom classes in storage are NOT supported by GenVM's ABI schema generator.
     # Therefore, we serialize/deserialize Pledge data structures to JSON strings.
     pledges: TreeMap[str, str]
@@ -40,11 +40,11 @@ class Contract(gl.Contract):
         # Only scalar fields are set here. TreeMap/DynArray are already empty.
         self.owner = gl.message.sender_address
 
-    # ── helpers ───────────────────────────────────────────────────────────────
+    # -- helpers ---------------------------------------------------------------
     def _exists(self, pledge_id: str) -> bool:
         return self.pledges.get(pledge_id, "") != ""
 
-    # ── writes ──────────────────────────────────────────────────────────────────
+    # -- writes ------------------------------------------------------------------
     @gl.public.write.payable
     def register_pledge(
         self,
@@ -99,13 +99,13 @@ class Contract(gl.Contract):
         promise = p["description"]
         org = p["org_name"]
 
-        # ── non-deterministic block: read web + LLM verdict ──
+        # -- non-deterministic block: read web + LLM verdict --
         # Everything nondet must live inside run_nondet_unsafe (Rule #7).
         def leader_fn() -> str:
             try:
                 evidence = gl.nondet.web.render(url, mode="text")
             except Exception:
-                # Dead URL / render failure → UNCLEAR, no slash.
+                # Dead URL / render failure -> UNCLEAR, no slash.
                 return json.dumps(
                     {"verdict": "UNCLEAR", "reason": "evidence URL unreachable"}
                 )
@@ -138,7 +138,7 @@ Respond with STRICT JSON only, no markdown:
 
         def validator_fn(leader_result) -> bool:
             # Validators check the MEANING of the verdict, not just the schema
-            # (Trục 2: validator kiểm nội dung, không kiểm hình dạng).
+            # (Axis 2: validator checks content, not shape).
             if not isinstance(leader_result, gl.vm.Return):
                 return False
             try:
@@ -153,9 +153,12 @@ Respond with STRICT JSON only, no markdown:
 
         raw = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
-        # ── deterministic: parse + apply effects ──
+        # -- deterministic: parse + apply effects --
         try:
-            decision = json.loads(raw)
+            if isinstance(raw, dict):
+                decision = raw
+            else:
+                decision = json.loads(raw)
         except Exception:
             decision = {"verdict": "UNCLEAR", "reason": "unparseable verdict"}
 
@@ -174,7 +177,7 @@ Respond with STRICT JSON only, no markdown:
             p["resolved"] = True
             self.pledges[pledge_id] = json.dumps(p, sort_keys=True)
             if slashed > u256(0):
-                gl.message.send_value(whistleblower, slashed)
+                gl.get_contract_at(whistleblower).emit_transfer(value=slashed)
         elif verdict_str == "KEPT":
             p["verdict"] = int(VERDICT_KEPT)
             self.pledges[pledge_id] = json.dumps(p, sort_keys=True)
@@ -189,7 +192,7 @@ Respond with STRICT JSON only, no markdown:
             raise Exception("unknown pledge_id")
         p_raw = self.pledges[pledge_id]
         p = json.loads(p_raw)
-        if gl.message.sender_address.as_hex != p["creator"]:
+        if gl.message.sender_address.as_hex.lower() != p["creator"].lower():
             raise Exception("only creator may reclaim")
         if int(p["verdict"]) != int(VERDICT_KEPT):
             raise Exception("stake reclaimable only when verdict is KEPT")
@@ -198,9 +201,9 @@ Respond with STRICT JSON only, no markdown:
         p["resolved"] = True
         self.pledges[pledge_id] = json.dumps(p, sort_keys=True)
         if amount > u256(0):
-            gl.message.send_value(gl.message.sender_address, amount)
+            gl.get_contract_at(gl.message.sender_address).emit_transfer(value=amount)
 
-    # ── reads ───────────────────────────────────────────────────────────────────
+    # -- reads -------------------------------------------------------------------
     @gl.public.view
     def get_pledge(self, pledge_id: str) -> str:
         if not self._exists(pledge_id):

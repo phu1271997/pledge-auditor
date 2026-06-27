@@ -1,22 +1,13 @@
 """
-Test suite for the Pledge Auditor Intelligent Contract.
+Test suite for the Pledge Auditor Intelligent Contract using gltest's Direct Mode.
+Runs in-memory and mocks the non-deterministic web.render / exec_prompt calls.
 
-Run with GenLayer's test runner (gltest), which spins up a local GenVM and
-mocks the non-deterministic web.render / exec_prompt calls so the AI jury is
-deterministic during testing.
-
-    pip install genlayer-test
+Run with:
     gltest tests/
-
-Covers: happy path (register → audit KEPT → reclaim), the breach/slash path,
-and the key edge cases the contract guards against.
 """
 
 import json
 import pytest
-from gltest import get_contract_factory, create_account
-from gltest.assertions import tx_execution_succeeded, tx_execution_failed
-
 
 CONTRACT = "pledge_auditor.py"
 
@@ -26,60 +17,58 @@ VERDICT_BREACHED = 2
 VERDICT_UNCLEAR = 3
 
 
-def _deploy():
-    factory = get_contract_factory(contract_file_path=CONTRACT)
-    return factory.deploy(args=[])
+@pytest.fixture
+def contract(direct_deploy):
+    # Deploy using direct mode helper
+    return direct_deploy(CONTRACT)
 
 
 # ── happy path ────────────────────────────────────────────────────────────────
-def test_register_and_list():
-    contract = _deploy()
-    res = contract.register_pledge(
-        args=["p1", "Acme Corp", "Refunds within 30 days", "https://acme.example/policy"],
-        value=1000,
+def test_register_and_list(direct_vm, contract):
+    direct_vm.value = 1000
+    contract.register_pledge(
+        "p1", "Acme Corp", "Refunds within 30 days", "https://acme.example/policy"
     )
-    assert tx_execution_succeeded(res)
 
-    listed = json.loads(contract.list_pledges(args=[]))
+    listed = json.loads(contract.list_pledges())
     assert len(listed) == 1
     assert listed[0]["id"] == "p1"
     assert listed[0]["org_name"] == "Acme Corp"
     assert listed[0]["verdict"] == VERDICT_PENDING
 
 
-def test_audit_kept_then_reclaim(monkeypatch_jury_kept):
+def test_audit_kept_then_reclaim(direct_vm, contract, monkeypatch_jury_kept):
     """With the jury mocked to KEPT, creator can reclaim the stake."""
-    contract = _deploy()
+    direct_vm.value = 5000
     contract.register_pledge(
-        args=["p2", "Acme", "Carbon neutral by 2030", "https://acme.example/esg"],
-        value=5000,
+        "p2", "Acme", "Carbon neutral by 2030", "https://acme.example/esg"
     )
-    res = contract.audit_pledge(args=["p2"])
-    assert tx_execution_succeeded(res)
+    
+    contract.audit_pledge("p2")
 
-    p = json.loads(contract.get_pledge(args=["p2"]))
+    p = json.loads(contract.get_pledge("p2"))
     assert p["verdict"] == VERDICT_KEPT
     assert int(p["audit_count"]) == 1
 
-    res2 = contract.reclaim_stake(args=["p2"])
-    assert tx_execution_succeeded(res2)
-    p2 = json.loads(contract.get_pledge(args=["p2"]))
+    # Reclaim stake (should succeed)
+    contract.reclaim_stake("p2")
+    p2 = json.loads(contract.get_pledge("p2"))
     assert int(p2["stake"]) == 0
     assert p2["resolved"] is True
 
 
 # ── breach / slash path ───────────────────────────────────────────────────────
-def test_audit_breached_slashes_to_whistleblower(monkeypatch_jury_breached):
-    contract = _deploy()
+def test_audit_breached_slashes_to_whistleblower(direct_vm, contract, monkeypatch_jury_breached, direct_alice):
+    direct_vm.value = 8000
     contract.register_pledge(
-        args=["p3", "BadCo", "No child labour in supply chain", "https://badco.example/report"],
-        value=8000,
+        "p3", "BadCo", "No child labour in supply chain", "https://badco.example/report"
     )
-    whistleblower = create_account()
-    res = contract.connect(whistleblower).audit_pledge(args=["p3"])
-    assert tx_execution_succeeded(res)
+    
+    # Prank/set the sender to whistleblower (Alice)
+    direct_vm.sender = direct_alice
+    contract.audit_pledge("p3")
 
-    p = json.loads(contract.get_pledge(args=["p3"]))
+    p = json.loads(contract.get_pledge("p3"))
     assert p["verdict"] == VERDICT_BREACHED
     assert int(p["stake"]) == 0
     assert int(p["bounty_pool"]) == 8000
@@ -87,55 +76,45 @@ def test_audit_breached_slashes_to_whistleblower(monkeypatch_jury_breached):
 
 
 # ── edge cases ────────────────────────────────────────────────────────────────
-def test_duplicate_id_rejected():
-    contract = _deploy()
-    contract.register_pledge(
-        args=["dup", "Org", "A promise", "https://x.example"], value=10
-    )
-    res = contract.register_pledge(
-        args=["dup", "Org", "A promise", "https://x.example"], value=10
-    )
-    assert tx_execution_failed(res)
+def test_duplicate_id_rejected(direct_vm, contract):
+    direct_vm.value = 10
+    contract.register_pledge("dup", "Org", "A promise", "https://x.example")
+    
+    with pytest.raises(Exception, match="pledge_id already exists"):
+        contract.register_pledge("dup", "Org", "A promise", "https://x.example")
 
 
-def test_empty_description_rejected():
-    contract = _deploy()
-    res = contract.register_pledge(
-        args=["e1", "Org", "", "https://x.example"], value=10
-    )
-    assert tx_execution_failed(res)
+def test_empty_description_rejected(direct_vm, contract):
+    direct_vm.value = 10
+    with pytest.raises(Exception, match="description must not be empty"):
+        contract.register_pledge("e1", "Org", "", "https://x.example")
 
 
-def test_non_http_url_rejected():
-    contract = _deploy()
-    res = contract.register_pledge(
-        args=["e2", "Org", "A promise", "ftp://x.example"], value=10
-    )
-    assert tx_execution_failed(res)
+def test_non_http_url_rejected(direct_vm, contract):
+    direct_vm.value = 10
+    with pytest.raises(Exception, match="evidence_url must be an http"):
+        contract.register_pledge("e2", "Org", "A promise", "ftp://x.example")
 
 
-def test_audit_unknown_pledge_rejected():
-    contract = _deploy()
-    res = contract.audit_pledge(args=["nope"])
-    assert tx_execution_failed(res)
+def test_audit_unknown_pledge_rejected(direct_vm, contract):
+    with pytest.raises(Exception, match="unknown pledge_id"):
+        contract.audit_pledge("nope")
 
 
-def test_reclaim_requires_kept(monkeypatch_jury_breached):
-    contract = _deploy()
-    contract.register_pledge(
-        args=["p4", "BadCo", "Promise", "https://badco.example"], value=100
-    )
-    contract.audit_pledge(args=["p4"])  # → BREACHED, resolved
-    res = contract.reclaim_stake(args=["p4"])
-    assert tx_execution_failed(res)
+def test_reclaim_requires_kept(direct_vm, contract, monkeypatch_jury_breached):
+    direct_vm.value = 100
+    contract.register_pledge("p4", "BadCo", "Promise", "https://badco.example")
+    contract.audit_pledge("p4")  # -> BREACHED, resolved
+    
+    with pytest.raises(Exception, match="stake reclaimable only when verdict is KEPT"):
+        contract.reclaim_stake("p4")
 
 
-def test_non_creator_cannot_reclaim(monkeypatch_jury_kept):
-    contract = _deploy()
-    contract.register_pledge(
-        args=["p5", "Org", "Promise", "https://x.example"], value=100
-    )
-    contract.audit_pledge(args=["p5"])
-    stranger = create_account()
-    res = contract.connect(stranger).reclaim_stake(args=["p5"])
-    assert tx_execution_failed(res)
+def test_non_creator_cannot_reclaim(direct_vm, contract, monkeypatch_jury_kept, direct_bob):
+    direct_vm.value = 100
+    contract.register_pledge("p5", "Org", "Promise", "https://x.example")
+    contract.audit_pledge("p5")
+    
+    direct_vm.sender = direct_bob
+    with pytest.raises(Exception, match="only creator may reclaim"):
+        contract.reclaim_stake("p5")
