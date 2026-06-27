@@ -40,7 +40,14 @@ function getAccount() {
   return createAccount(pk as `0x${string}`);
 }
 
-export function getClient() {
+export function getClient(walletAddress?: string) {
+  if (walletAddress && typeof window !== "undefined" && (window as any).ethereum) {
+    return createClient({
+      chain: studionet,
+      provider: (window as any).ethereum,
+      account: walletAddress as Address,
+    });
+  }
   return createClient({
     chain: studionet,
     account: getAccount(),
@@ -84,14 +91,17 @@ export async function getPledge(id: string): Promise<PledgeDetail> {
   return JSON.parse(raw as string);
 }
 
-export async function registerPledge(params: {
-  id: string;
-  orgName: string;
-  description: string;
-  evidenceUrl: string;
-  stake: bigint;
-}): Promise<string> {
-  const client = getClient();
+export async function registerPledge(
+  params: {
+    id: string;
+    orgName: string;
+    description: string;
+    evidenceUrl: string;
+    stake: bigint;
+  },
+  walletAddress?: string
+): Promise<string> {
+  const client = getClient(walletAddress);
   const txHash = await client.writeContract({
     address: CONTRACT_ADDRESS,
     functionName: "register_pledge",
@@ -105,8 +115,8 @@ export async function registerPledge(params: {
 // Trigger an on-chain audit. This is the call that fires the AI jury:
 // the contract reads the evidence URL and the validators reach consensus on
 // the verdict. Expect this to take longer than a normal tx (consensus + LLM).
-export async function auditPledge(id: string): Promise<string> {
-  const client = getClient();
+export async function auditPledge(id: string, walletAddress?: string): Promise<string> {
+  const client = getClient(walletAddress);
   const txHash = await client.writeContract({
     address: CONTRACT_ADDRESS,
     functionName: "audit_pledge",
@@ -117,8 +127,8 @@ export async function auditPledge(id: string): Promise<string> {
   return txHash;
 }
 
-export async function reclaimStake(id: string): Promise<string> {
-  const client = getClient();
+export async function reclaimStake(id: string, walletAddress?: string): Promise<string> {
+  const client = getClient(walletAddress);
   const txHash = await client.writeContract({
     address: CONTRACT_ADDRESS,
     functionName: "reclaim_stake",
