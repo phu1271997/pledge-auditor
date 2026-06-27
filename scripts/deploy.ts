@@ -11,7 +11,7 @@
 
 import { readFileSync } from "node:fs";
 import { createClient, createAccount } from "genlayer-js";
-import { simulator } from "genlayer-js/chains";
+import { studionet } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
 
 const CONTRACT_PATH = new URL(
@@ -25,8 +25,7 @@ async function main() {
 
   const account = createAccount(pk);
   const client = createClient({
-    chain: simulator,
-    endpoint: "https://studio.genlayer.com/api",
+    chain: studionet,
     account,
   });
 

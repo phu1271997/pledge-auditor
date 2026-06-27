@@ -7,7 +7,7 @@ import {
   createAccount,
   generatePrivateKey,
 } from "genlayer-js";
-import { simulator } from "genlayer-js/chains";
+import { studionet } from "genlayer-js/chains";
 import { type Address, TransactionStatus } from "genlayer-js/types";
 
 // Replace with your deployed contract address (see scripts/deploy.ts output).
@@ -42,8 +42,7 @@ function getAccount() {
 
 export function getClient() {
   return createClient({
-    chain: simulator,
-    endpoint: "https://studio.genlayer.com/api",
+    chain: studionet,
     account: getAccount(),
   });
 }

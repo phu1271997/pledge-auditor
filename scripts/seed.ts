@@ -6,7 +6,7 @@
 //   DEPLOYER_PRIVATE_KEY=0x... VITE_CONTRACT_ADDRESS=0x... npx tsx scripts/seed.ts
 
 import { createClient, createAccount } from "genlayer-js";
-import { simulator } from "genlayer-js/chains";
+import { studionet } from "genlayer-js/chains";
 import { type Address, TransactionStatus } from "genlayer-js/types";
 
 const SAMPLES = [
@@ -41,8 +41,7 @@ async function main() {
   }
 
   const client = createClient({
-    chain: simulator,
-    endpoint: "https://studio.genlayer.com/api",
+    chain: studionet,
     account: createAccount(pk),
   });
 
