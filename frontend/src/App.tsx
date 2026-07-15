@@ -9,7 +9,11 @@ import {
   registerPledge,
   auditPledge,
   reclaimStake,
+  healthCheck,
   VERDICT_LABEL,
+  config,
+  EXPECTED_METHODS,
+  FORBIDDEN_SLA_ADDRESS,
   type PledgeSummary,
   type PledgeDetail,
 } from "./genlayer";
@@ -30,6 +34,8 @@ export default function App() {
   
   // Wallet state
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [health, setHealth] = useState<string>("Checking contract binding…");
+  const [healthOk, setHealthOk] = useState<boolean | null>(null);
 
   // Register form
   const [form, setForm] = useState({
@@ -43,9 +49,19 @@ export default function App() {
   async function refresh() {
     try {
       setPledges(await listPledges());
-    } catch (e) {
-      showStatus("Could not load pledges. Verify contract address in .env", "error");
+    } catch (e: any) {
+      showStatus(
+        "Could not load pledges (Pledge Auditor methods). " +
+          (e?.message ?? "Verify VITE_CONTRACT_ADDRESS points at contracts/pledge_auditor.py, not the SLA enforcer."),
+        "error"
+      );
     }
+  }
+
+  async function probeHealth() {
+    const result = await healthCheck();
+    setHealthOk(result.ok);
+    setHealth(result.message);
   }
 
   function showStatus(msg: string, type: "info" | "success" | "error" = "info") {
@@ -53,9 +69,9 @@ export default function App() {
     setStatusType(type);
   }
 
-  // MetaMask integration
+  // MetaMask integration + contract binding probe
   useEffect(() => {
-    refresh();
+    probeHealth().then(() => refresh());
 
     if (typeof window !== "undefined" && (window as any).ethereum) {
       const eth = (window as any).ethereum;
@@ -219,6 +235,8 @@ export default function App() {
             </h1>
             <p style={{ color: "#9ca3af", margin: "6px 0 0 0", fontSize: 15 }}>
               Decentralized subjective reputation layer on <strong style={{ color: "#c084fc" }}>GenLayer</strong>
+              {" · "}
+              <span style={{ color: "#a78bfa" }}>Pledge workflow only (not SLA Auto-Enforcer)</span>
             </p>
           </div>
 
@@ -290,6 +308,62 @@ export default function App() {
             )}
           </div>
         </header>
+
+        {/* Deployment evidence — judge-facing, no wallet required */}
+        <section
+          className="glass-panel"
+          style={{ marginBottom: 24, border: "1px solid rgba(167, 139, 250, 0.25)" }}
+        >
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "1.1rem", fontFamily: "'Outfit', sans-serif" }}>
+            Deployment evidence · Pledge Auditor contract
+          </h2>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "140px 1fr",
+            gap: "8px 14px",
+            fontSize: 13,
+            fontFamily: "ui-monospace, monospace",
+          }}>
+            <span style={{ color: "#9ca3af" }}>Product</span>
+            <span>Pledge Auditor (register_pledge → audit_pledge → reclaim_stake)</span>
+            <span style={{ color: "#9ca3af" }}>Contract</span>
+            <span style={{ wordBreak: "break-all" }}>
+              {config.isConfigured ? config.contractAddress : "NOT SET — configure VITE_CONTRACT_ADDRESS"}
+            </span>
+            <span style={{ color: "#9ca3af" }}>Network / RPC</span>
+            <span style={{ wordBreak: "break-all" }}>{config.networkLabel} · {config.rpcUrl}</span>
+            <span style={{ color: "#9ca3af" }}>Source</span>
+            <span>{config.sourcePath}</span>
+            <span style={{ color: "#9ca3af" }}>Methods</span>
+            <span style={{ wordBreak: "break-all" }}>{EXPECTED_METHODS.join(", ")}</span>
+            <span style={{ color: "#9ca3af" }}>Must NOT be</span>
+            <span style={{ color: "#f87171", wordBreak: "break-all" }}>
+              SLA Auto-Enforcer @ {FORBIDDEN_SLA_ADDRESS}
+            </span>
+          </div>
+          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 12, fontSize: 13 }}>
+            {config.explorerUrl && (
+              <a href={config.explorerUrl} target="_blank" rel="noreferrer" style={{ color: "#c084fc" }}>
+                Explorer
+              </a>
+            )}
+            <a href={config.studioUrl} target="_blank" rel="noreferrer" style={{ color: "#c084fc" }}>
+              GenLayer Studio
+            </a>
+            <a href={config.githubRepo} target="_blank" rel="noreferrer" style={{ color: "#c084fc" }}>
+              GitHub source
+            </a>
+          </div>
+          <p style={{
+            margin: "14px 0 0 0",
+            fontSize: 13,
+            color: healthOk === true ? "#34d399" : healthOk === false ? "#f87171" : "#9ca3af",
+            fontFamily: "ui-monospace, monospace",
+          }}>
+            {healthOk === true ? "✓ " : healthOk === false ? "✗ " : "… "}
+            {health}
+          </p>
+        </section>
 
         {/* Global Notification Banner */}
         {status && (
@@ -702,9 +776,16 @@ export default function App() {
           lineHeight: 1.6,
           textAlign: "center"
         }}>
-          💡 <strong>Consensus Mechanism:</strong> The AI jury consensus runs on-chain via the <em>Equivalence Principle</em>. 
-          Validators execute non-deterministic LLM evaluation of the crawled evidence page to reach agreement. 
+          💡 <strong>Consensus Mechanism:</strong> The AI jury consensus runs on-chain via the <em>Equivalence Principle</em>.
+          Validators execute non-deterministic LLM evaluation of the crawled evidence page to reach agreement.
           True subjective evaluation on a decentralized layer is only possible on GenLayer.
+          <br />
+          <span style={{ color: "#6b7280" }}>
+            Workflow: <code>register_pledge</code> → <code>audit_pledge</code> →{" "}
+            <code>reclaim_stake</code> (if KEPT) / whistleblower paid on BREACHED.
+            This dApp is <strong>not</strong> the SLA Auto-Enforcer (
+            <code>create_agreement</code> / <code>settle</code>).
+          </span>
         </footer>
 
       </div>

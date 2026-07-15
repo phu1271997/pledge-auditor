@@ -208,7 +208,11 @@ Respond with STRICT JSON only, no markdown:
     def get_pledge(self, pledge_id: str) -> str:
         if not self._exists(pledge_id):
             raise Exception("unknown pledge_id")
-        return self.pledges[pledge_id]
+        p = json.loads(self.pledges[pledge_id])
+        # Always include id so frontends / explorers can round-trip without
+        # tracking the request argument separately.
+        p["id"] = pledge_id
+        return json.dumps(p, sort_keys=True)
 
     @gl.public.view
     def list_pledges(self) -> str:
@@ -227,3 +231,36 @@ Respond with STRICT JSON only, no markdown:
                 }
             )
         return json.dumps(out)
+
+    @gl.public.view
+    def get_contract_info(self) -> str:
+        """Identity view so reviewers can confirm this is NOT the SLA enforcer."""
+        return json.dumps(
+            {
+                "name": "Pledge Auditor",
+                "source": "contracts/pledge_auditor.py",
+                "methods": [
+                    "register_pledge",
+                    "audit_pledge",
+                    "reclaim_stake",
+                    "get_pledge",
+                    "list_pledges",
+                    "get_contract_info",
+                ],
+                "not": {
+                    "product": "SLA Auto-Enforcer",
+                    "methods": [
+                        "create_agreement",
+                        "settle",
+                        "list_agreements",
+                        "get_agreement",
+                    ],
+                },
+                "workflow": [
+                    "register_pledge (payable stake)",
+                    "audit_pledge (AI jury via web.render + exec_prompt)",
+                    "reclaim_stake if KEPT / whistleblower paid if BREACHED",
+                ],
+            },
+            sort_keys=True,
+        )

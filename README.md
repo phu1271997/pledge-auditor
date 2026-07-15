@@ -2,6 +2,19 @@
 
 **A trustless reputation layer for public promises — built on GenLayer.**
 
+| | |
+|---|---|
+| **GitHub** | https://github.com/phu1271997/pledge-auditor |
+| **Live app** | https://pledge-auditor.vercel.app *(public)* |
+| **Contract source** | [`contracts/pledge_auditor.py`](contracts/pledge_auditor.py) |
+| **Network** | GenLayer Studionet · `https://studio.genlayer.com/api` |
+| **Judge pack** | [`docs/VERIFICATION.md`](docs/VERIFICATION.md) |
+
+> **Not the SLA Auto-Enforcer.** This product uses `register_pledge` /
+> `audit_pledge` / `reclaim_stake`. It must **never** point at
+> `0x4452EBa2A88F8e3708193253A6aDFC11B82366FC` (SLA `create_agreement` /
+> `settle`). A previous live misconfig did exactly that — fixed in this tree.
+
 Organizations make qualitative public commitments all the time: *"carbon
 neutral by 2030"*, *"refunds within 30 days"*, *"no child labour in our supply
 chain"*, *"99.9% uptime"*. Today, nothing on-chain can verify whether those
@@ -98,14 +111,31 @@ npx tsx scripts/deploy.ts             # prints the deployed address
 
 ```bash
 cd frontend
-cp .env.example .env                  # then set VITE_CONTRACT_ADDRESS
+cp .env.example .env
+# Set VITE_CONTRACT_ADDRESS to the deployed Pledge Auditor address ONLY
+# (from contracts/pledge_auditor.py — never the SLA enforcer address).
 npm install
 npm run dev
 ```
 
-The frontend uses **genlayer-js** to sign transactions, trigger audits, and
-read verdicts back from the deployed contract. Deploy it live on Vercel/Netlify
-and point `VITE_CONTRACT_ADDRESS` at your contract.
+```bash
+VITE_CONTRACT_ADDRESS=0xEe6E04C93b98F2C5689d64C75C4C3c0322186a4B
+VITE_GENLAYER_RPC=https://studio.genlayer.com/api
+```
+
+The frontend uses **genlayer-js** for `register_pledge`, `audit_pledge`,
+`reclaim_stake`, `get_pledge`, and `list_pledges`. The UI shows a **Deployment
+evidence** panel and a live health check on `list_pledges()`.
+
+### Vercel (public)
+
+1. Root Directory = `frontend`  
+2. Env: `VITE_CONTRACT_ADDRESS` + `VITE_GENLAYER_RPC`  
+3. **Redeploy after every address change** (Vite bakes env at build time)  
+4. Deployment Protection **off**  
+5. Confirm production bundle does **not** contain `4452EBa2`  
+
+Handoff: [`ANTIGRAVITY_PROMPT.md`](ANTIGRAVITY_PROMPT.md)
 
 ### Seeding demo data
 
@@ -137,8 +167,12 @@ pledge, reclaim-requires-KEPT, non-creator-cannot-reclaim.
 | `register_pledge(id, org, description, evidence_url)` | write payable | Register a pledge, backing it with the attached stake. |
 | `audit_pledge(id)` | write | Trigger the AI jury; applies KEPT/BREACHED/UNCLEAR effects. |
 | `reclaim_stake(id)` | write | Creator reclaims stake only if the verdict stands as KEPT. |
-| `get_pledge(id)` | view | Full pledge detail as JSON. |
+| `get_pledge(id)` | view | Full pledge detail as JSON (includes `id`). |
 | `list_pledges()` | view | Summary list of all pledges as JSON. |
+| `get_contract_info()` | view | Product identity (Pledge Auditor vs SLA enforcer). |
+
+**Not this product:** SLA Auto-Enforcer methods `create_agreement`, `settle`,
+`list_agreements`, `get_agreement`.
 
 ---
 
